@@ -145,8 +145,9 @@ test "lines of text" {
         .delimit_mode = .separator,
     });
 
-    const buffer = try read_file(std.testing.allocator, "test.db");
+    const buffer = try std.testing.allocator.alloc(u8, test_db.len);
     defer std.testing.allocator.free(buffer);
+    @memcpy(buffer, test_db);
 
     var it = LineIterator.init(buffer);
 
@@ -167,8 +168,9 @@ test "POSIX text" {
         .delimit_mode = .terminator,
     });
 
-    const buffer = try read_file(std.testing.allocator, "test.db");
+    const buffer = try std.testing.allocator.alloc(u8, test_db.len);
     defer std.testing.allocator.free(buffer);
+    @memcpy(buffer, test_db);
 
     var it = PosixTextIterator.init(buffer);
 
@@ -188,8 +190,9 @@ test "collapsed delimiters" {
         .collapse = true,
     });
 
-    const buffer = try read_file(std.testing.allocator, "test.db");
+    const buffer = try std.testing.allocator.alloc(u8, test_db.len);
     defer std.testing.allocator.free(buffer);
+    @memcpy(buffer, test_db);
 
     var it = NonEmptyLineIterator.init(buffer);
 
@@ -228,8 +231,9 @@ test "error mode" {
         .unterminated_mode = .@"error",
     });
 
-    const buffer = try read_file(std.testing.allocator, "test.db");
+    const buffer = try std.testing.allocator.alloc(u8, test_db.len);
     defer std.testing.allocator.free(buffer);
+    @memcpy(buffer, test_db);
 
     var line_it = LineIterator.init(buffer);
     const line = line_it.next().?;
@@ -257,3 +261,6 @@ fn read_file(allocator: mem.Allocator, path: []const u8) ![]u8 {
 
     return try file.readToEndAlloc(allocator, std.math.maxInt(usize));
 }
+
+/// Simple database example for unit tests.
+const test_db = @embedFile("test.db");
