@@ -21,6 +21,16 @@ pub const DelimitMode = enum {
     terminator,
 };
 
+/// The trim mode indicates which side(s) should be scanned for trimming.
+pub const TrimMode = enum {
+    /// Trim from both sides.
+    both,
+    /// Trim from the left.
+    left,
+    /// Trim from the right.
+    right,
+};
+
 /// The error mode controls how final unterminated value is handled.  If the
 /// delimit mode is .separator, this has no effect.
 pub const UnterminatedMode = enum {
@@ -42,6 +52,15 @@ pub fn DelimitedBufferOptions(comptime T: type) type {
         delimit_mode: DelimitMode,
         /// How to handle final unterminated value.
         unterminated_mode: UnterminatedMode = .ok,
+    };
+}
+
+pub fn TrimBufferOptions(comptime T: type) type {
+    return struct {
+        /// Values to be trimmed from buffer.
+        trim: []const T,
+        /// Which side(s) to trim.
+        trim_mode: TrimMode = .both,
     };
 }
 
@@ -134,6 +153,62 @@ pub fn DelimitedBufferIterator(
             }
 
             return false;
+        }
+    };
+}
+
+/// Trim results of a buffer iterator.
+pub fn TrimBufferIterator(
+    comptime Iterator: type,
+    comptime T: type,
+    comptime options: TrimBufferOptions(T),
+) type {
+    const trim = options.trim;
+    const trim_mode = options.trim_mode;
+
+    return struct {
+        inner: Iterator,
+
+        /// Set the buffer for the underlying iterator.
+        pub fn init(buffer: []const u8) @This() {
+            return .{ .inner = Iterator.init(buffer) };
+        }
+
+        /// Return the next trimmed value.  Return null when no more values are
+        /// available.
+        pub fn next(this: *@This()) ?[]const u8 {
+            while (this.inner.next()) |value| {
+                var start: usize = 0;
+                var end: usize = value.len;
+
+                // trim left side
+                if (trim_mode == .both or trim_mode == .left) {
+                    left: while (start < value.len) {
+                        const done = m: for (trim) |val| {
+                            if (value[start] == val) break :m false;
+                        } else true;
+
+                        if (done) break :left;
+                        start += 1;
+                    }
+                }
+
+                // trim right side
+                if (trim_mode == .both or trim_mode == .right) {
+                    right: while (end > start) {
+                        const done = m: for (trim) |val| {
+                            if (value[end - 1] == val) break :m false;
+                        } else true;
+
+                        if (done) break :right;
+                        end -= 1;
+                    }
+                }
+
+                return if (start < end) value[start..end] else value[0..0];
+            }
+
+            return null;
         }
     };
 }
@@ -246,6 +321,38 @@ test "error mode" {
     try std.testing.expectEqual(null, loose.next());
     try std.testing.expectEqual(null, lossy.next());
     try std.testing.expectError(DatabaseError.UnexpectedExtraField, fail.next());
+}
+
+test "trim characters" {
+    // trim some characters from each value
+    const TrimmedIterator = TrimBufferIterator(DelimitedBufferIterator(u8, .{
+        .delims = &.{'\n'},
+        .delimit_mode = .terminator,
+        .collapse = true,
+    }), u8, .{
+        .trim = &.{ 'a', 'b', 'c', 'd', 'e' },
+        .trim_mode = .both,
+    });
+
+    const buffer = try std.testing.allocator.alloc(u8, test_db.len);
+    defer std.testing.allocator.free(buffer);
+    @memcpy(buffer, test_db);
+
+    var start_it = TrimmedIterator.init(buffer);
+
+    try std.testing.expectStringStartsWith(start_it.next().?, "name");
+    try std.testing.expectStringStartsWith(start_it.next().?, "pple");
+    try std.testing.expectStringStartsWith(start_it.next().?, "nana");
+    try std.testing.expectStringStartsWith(start_it.next().?, "rrot");
+    try std.testing.expectEqual(null, start_it.next());
+
+    var end_it = TrimmedIterator.init(buffer);
+
+    try std.testing.expectStringEndsWith(end_it.next().?, "color");
+    try std.testing.expectStringEndsWith(end_it.next().?, "r");
+    try std.testing.expectStringEndsWith(end_it.next().?, "yellow");
+    try std.testing.expectStringEndsWith(end_it.next().?, "orang");
+    try std.testing.expectEqual(null, end_it.next());
 }
 
 /// Used in test cases to load test data.
