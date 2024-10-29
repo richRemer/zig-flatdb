@@ -5,6 +5,7 @@
         "build.zig",
         "build.zig.zon",
         "flatdb.zig",
+        "qb.zig",
         "test.db",
         "LICENSE",
         "README.md",
